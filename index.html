@@ -1,0 +1,498 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="theme-color" content="#075d43">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="apple-mobile-web-app-title" content="桃竹區部賀報">
+  <title>桃竹區部賀報製作</title>
+  <link rel="manifest" href="./manifest.webmanifest">
+  <link rel="apple-touch-icon" href="./icons/icon-192.png">
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <style>
+    :root { color-scheme: light; --green:#075d43; --gold:#d7ad37; --ink:#26312a; --muted:#66736b; }
+    * { box-sizing:border-box; }
+    body { margin:0; background:#f1f4ef; color:var(--ink); font-family:-apple-system,BlinkMacSystemFont,"PingFang TC","Noto Sans TC","Microsoft JhengHei",sans-serif; }
+    main { max-width:680px; margin:auto; padding:calc(18px + env(safe-area-inset-top)) 14px calc(30px + env(safe-area-inset-bottom)); }
+    header { padding:4px 3px 15px; }
+    h1 { font-size:24px; margin:0 0 7px; letter-spacing:.02em; }
+    .intro { color:var(--muted); font-size:14px; line-height:1.55; margin:0; }
+    .card { background:#fff; border-radius:18px; padding:17px; margin:0 0 14px; box-shadow:0 5px 20px #173b2410; }
+    .grid { display:grid; grid-template-columns:1fr; gap:0; }
+    label { display:block; font-size:14px; font-weight:700; margin:0 0 6px; }
+    input { appearance:none; width:100%; border:1px solid #d6ded7; border-radius:11px; padding:13px 12px; background:white; font-size:16px; color:#1d2b22; margin:0 0 13px; }
+    input:focus { outline:2px solid #7cae98; border-color:var(--green); }
+    button { border:0; border-radius:12px; min-height:48px; padding:12px 14px; width:100%; font-size:16px; font-weight:750; cursor:pointer; }
+    button:disabled { opacity:.45; cursor:not-allowed; }
+    .primary { color:#fff; background:var(--green); }
+    .secondary { color:var(--green); background:#e8f0eb; margin-top:9px; }
+    .gold { color:#3d2c00; background:#f7e8b5; margin-top:9px; }
+    .preview-title { display:flex; justify-content:space-between; align-items:center; gap:10px; margin-bottom:12px; }
+    h2 { font-size:17px; margin:0; }
+    .pill { font-size:12px; color:#4f6558; background:#edf3ee; border-radius:99px; padding:5px 9px; white-space:nowrap; }
+    canvas { width:100%; height:auto; display:block; border-radius:9px; background:#eee; }
+    .note { font-size:12px; color:var(--muted); line-height:1.6; margin:11px 1px 0; }
+    #status { font-size:13px; line-height:1.5; margin-top:10px; color:var(--green); overflow-wrap:anywhere; }
+    .footer { text-align:center; color:#7a857d; font-size:11px; padding:3px 0 0; }
+
+    [hidden] { display:none !important; }
+    .auth-card { background:#fff; border-radius:18px; padding:18px; margin:0 0 14px; box-shadow:0 5px 20px #173b2410; }
+    .auth-card input { margin-bottom:10px; }
+    .auth-actions { display:flex; gap:8px; flex-wrap:wrap; }
+    .auth-actions button { flex:1; min-width:130px; }
+    .auth-note { font-size:13px; line-height:1.6; color:var(--muted); margin:8px 0 0; overflow-wrap:anywhere; }
+    .auth-status { font-size:13px; line-height:1.5; color:var(--green); margin-top:10px; overflow-wrap:anywhere; }
+    @media (min-width:560px) { .grid { grid-template-columns:1fr 1fr; column-gap:12px; } .field.full { grid-column:1/-1; } }
+  </style>
+</head>
+<body>
+<main>
+  <section class="auth-card" id="loginPanel">
+    <h1>桃竹區部賀報製作</h1>
+    <p class="intro">請使用已獲授權的帳號登入，載入新屋人員職稱名單。</p>
+    <div style="margin-top:16px">
+      <label for="loginEmail">授權電子郵件</label>
+      <input id="loginEmail" type="email" autocomplete="username" placeholder="輸入已授權的電子郵件">
+      <label for="loginPassword">密碼</label>
+      <input id="loginPassword" type="password" autocomplete="current-password" placeholder="輸入密碼">
+      <div class="auth-actions">
+        <button class="primary" id="loginButton" type="button">登入並載入名單</button>
+      </div>
+      <p class="auth-note">只有管理員在 Supabase 建立的帳號可以登入。此網頁不提供自行註冊；人員名單不公開。</p>
+      <div class="auth-status" id="authStatus" role="status" aria-live="polite">請登入以載入最新名單。</div>
+    </div>
+  </section>
+  <div id="appContent" hidden>
+  <div style="display:flex;justify-content:flex-end;margin-bottom:8px">
+    <button class="secondary" id="logoutButton" type="button" style="width:auto;min-height:38px;padding:8px 12px;margin:0">登出名單</button>
+  </div>
+  <header>
+    <h1>桃竹區部賀報製作v3</h1>
+    <p class="intro">輸入五項資料，自動套用模板。可預覽圖片，並透過 iPhone 分享或儲存圖片。</p>
+  </header>
+  <section class="card">
+    <div class="grid">
+      <div class="field"><label for="unit">單位</label><input id="unit" autocomplete="organization" placeholder="新屋森林"></div>
+      <div class="field"><label for="name">姓名（建議最多輸入兩個）</label><input id="name" autocomplete="name" placeholder="小魔女"></div>
+      <div class="field"><label for="job">職稱（建議最多輸入兩個）</label><input id="job" placeholder="推展處總監"></div>
+      <div class="field"><label for="product">商品代號</label><input id="product" autocomplete="off" autocapitalize="characters" placeholder="輸入商品代號或名稱"><div id="productLookup" class="note" style="margin:-7px 1px 13px">輸入1～2個商品代號，以空格分隔；也可直接輸入中文商品名稱。</div><div id="productChoices" style="display:none;margin:-4px 0 13px"></div></div>
+      <div class="field full"><label for="fyp">FYP</label><input id="fyp" type="number" inputmode="decimal" step="any" min="0" placeholder="100"></div>
+    </div>
+    <button class="primary" id="generate">產生圖片預覽</button>
+    <button class="secondary" id="clear">清除欄位</button>
+  </section>
+
+  <section class="card">
+    <div class="preview-title"><h2>圖片預覽</h2><span class="pill">720 × 1034 PNG</span></div>
+    <canvas id="canvas" width="720" height="1034"></canvas>
+    <button class="secondary" id="share" disabled>分享圖片</button>
+    <div id="status" role="status" aria-live="polite">請填妥資料後，按「產生圖片預覽」。</div>
+    <p class="note">iPhone 點「分享圖片」後，可在分享選單選擇「儲存影像」存入照片，或分享到 LINE。</p>
+  </section>
+  <p class="footer">桃竹區部賀報製作工具 · 可離線使用（首次開啟並載入完成後）</p>
+</div>
+</main>
+<script>
+(() => {
+  const $ = id => document.getElementById(id);
+
+  // ===== Supabase 設定：完成 Supabase 專案後，填入 Project URL 與 Publishable key =====
+  // 只放 publishable/anon key；絕不可把 service_role/secret key 放在 HTML。
+  const SUPABASE_URL = '請填入你的_SUPABASE_PROJECT_URL';
+  const SUPABASE_PUBLISHABLE_KEY = '請填入你的_SUPABASE_PUBLISHABLE_KEY';
+  const STAFF_TABLE = 'new_house_staff';
+  let supabaseClient = null;
+
+  function setAuthStatus(message, isError = false) {
+    const el = $('authStatus');
+    if (el) {
+      el.textContent = message;
+      el.style.color = isError ? '#b42318' : 'var(--green)';
+    }
+  }
+
+  async function loadPrivateStaffList() {
+    setAuthStatus('登入成功，正在載入新屋人員名單……');
+    const { data, error } = await supabaseClient
+      .from(STAFF_TABLE)
+      .select('name, job')
+      .order('name', { ascending: true });
+    if (error) throw error;
+
+    const map = {};
+    for (const row of (data || [])) {
+      const name = String(row.name || '').trim();
+      const job = String(row.job || '').trim();
+      if (!name || !job) continue;
+      if (!map[name]) map[name] = [];
+      if (!map[name].includes(job)) map[name].push(job);
+    }
+    NEW_HOUSE_JOB_MAP = map;
+    staffListReady = true;
+    $('loginPanel').hidden = true;
+    $('appContent').hidden = false;
+    setAuthStatus(`名單載入完成，共 ${Object.keys(map).length} 位姓名。`);
+    $('status').textContent = '已登入，最新新屋人員名單已載入。';
+    // 若登入前已填入單位和姓名，名單載入後也補做一次職稱預填。
+    autofillNewHouseJob(true);
+  }
+
+  async function initializePrivateStaffAccess() {
+    if (!window.supabase || SUPABASE_URL.startsWith('請填入') ||
+        SUPABASE_PUBLISHABLE_KEY.startsWith('請填入')) {
+      setAuthStatus('尚未設定 Supabase。請先依隨附的部署說明設定網址與 Publishable key。', true);
+      $('loginButton').disabled = true;
+      return;
+    }
+    supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY, {
+      auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true }
+    });
+    $('loginButton').addEventListener('click', async () => {
+      const email = $('loginEmail').value.trim();
+      const password = $('loginPassword').value;
+      if (!email || !password) {
+        setAuthStatus('請輸入電子郵件及密碼。', true);
+        return;
+      }
+      $('loginButton').disabled = true;
+      setAuthStatus('正在登入……');
+      try {
+        const { error } = await supabaseClient.auth.signInWithPassword({ email, password });
+        if (error) throw error;
+        await loadPrivateStaffList();
+      } catch (error) {
+        setAuthStatus('登入或載入名單失敗：' + (error.message || '請確認帳號、密碼及資料表權限。'), true);
+      } finally {
+        $('loginButton').disabled = false;
+      }
+    });
+    $('loginPassword').addEventListener('keydown', e => {
+      if (e.key === 'Enter') $('loginButton').click();
+    });
+
+    const { data: { session } } = await supabaseClient.auth.getSession();
+    if (session) {
+      try {
+        await loadPrivateStaffList();
+      } catch (error) {
+        setAuthStatus('無法載入名單：' + (error.message || '請重新登入或聯絡管理員。'), true);
+        await supabaseClient.auth.signOut();
+      }
+    }
+    supabaseClient.auth.onAuthStateChange(async (event, session) => {
+      if (event === 'SIGNED_OUT' || !session) {
+        $('appContent').hidden = true;
+        $('loginPanel').hidden = false;
+        staffListReady = false;
+        NEW_HOUSE_JOB_MAP = {};
+        setAuthStatus('已登出。請重新登入以載入名單。');
+      }
+    });
+  }
+  const PRODUCT_MAP = {"ABA":["美添增鑽"],"ABB":["美添增鑽"],"AGH":["真漾心安"],"CFA":["自由配"],"CFD":["自由配"],"CFP":["自由配"],"CFQ":["自由配"],"CFR":["自由配"],"CFW":["自由配"],"DCC":["樂心安"],"DCD":["樂心安"],"DQ1":["IN康愛"],"DQB":["樂康愛"],"DR2":["精準康愛"],"DS5":["康泰無憂"],"DS6":["康泰無憂"],"DTF":["樂順心"],"DTG":["樂順心"],"ESA":["月月永溢"],"ESB":["月月永溢"],"ESC":["月月永溢"],"ESD":["月月永溢"],"FBC":["新溢起愛"],"FG3":["倍愛醫靠"],"FG4":["倍愛醫靠"],"FIA":["月月滿溢"],"FIB":["月月滿溢"],"FIC":["月月滿溢"],"FID":["月月滿溢"],"FKA":["月月泰利"],"FKB":["月月泰利"],"FKC":["月月泰利"],"FKD":["月月泰利"],"FMC":["好康愛"],"FSC":["滿溢寶"],"FSD":["滿溢寶"],"FSF":["滿溢康愛"],"FV6":["真心安"],"FV7":["真心安"],"GD3":["鑫超澳利富"],"GFB":["基優人生"],"GFC":["基優人生"],"GFD":["基優人生"],"GFE":["基優人生"],"GI2":["樂享平安"],"GJ3":["樂轉健康"],"GU6":["鑫超樂享人生"],"HD5":["新樂轉守護"],"HTB":["輕漾心安"],"JW4":["真安安"],"L67":["真康順"],"LCC":["樂齡守護"],"LCD":["樂齡守護"],"MFB":["豪康愛"],"N65":["意萬平安"],"R8A":["真飛Young人生"],"R8B":["真飛Young人生"],"SC2":["樂鍾心"],"SFE":["超飛揚"],"SRA":["月享安鑫"],"SRB":["月享安鑫"],"SRC":["月享安鑫"],"SRD":["月享安鑫"],"STA":["樂盈人生"],"STB":["樂盈人生"],"SUA":["飛揚一生"],"SUB":["飛揚一生"],"SUC":["飛揚一生"],"SUD":["飛揚一生"],"VSC":["安心守護A"],"VSD":["安心守護B"],"WAU":["祿利威登"],"WDA":["美愛康盈"],"WDB":["美滿康愛"],"WE1":["滿福寶"],"WSL":["萬得利"],"WSM":["萬得利"],"WUO":["鑽美富"],"WUP":["鑽美富"],"WUQ":["億美利"],"WUR":["億美利"],"WUS":["鑽美滿"],"XG4":["鑫超月月有利"],"XG5":["鑫超月月有利"],"ZCO":["新鍾心滿福"],"ZH8":["倍心守護"],"C64":["祿美富"],"CCA":["繽利101"],"CCB":["吉得利101"],"CP1":["悠享年年"],"CP2":["悠享年年"],"CP3":["悠享年年"],"CQA":["萬年美利"],"CQB":["萬年美利"],"CQC":["萬年美利"],"CQD":["萬年美利"],"CTA":["樂齡享退"],"DPA":["醫心康愛"],"DPC":["醫護康愛"],"DX4":["IN享愛壽險"],"FBB":["新溢起愛"],"FKE":["月月泰利"],"GI1":["樂平安"],"ICB":["鑫超樂享人生"],"ID6":["鑫超樂享人生"],"IUA":["OIU指享盈"],"JD2":["新智樂活"],"K84":["新GO心保障100"],"K93":["新GO心保障100"],"KC3":["微馨福"],"KC4":["微馨福"],"LDA":["睛智守護"],"LDB":["睛智守護"],"LX4":["鑫超樂享人生"],"N66":["新GO安心保本"],"N67":["意萬平安"],"SB8":["脂有為你"],"SFF":["超飛揚(外幣)"],"TC1":["定期壽險"],"TC2":["定期壽險"],"TC3":["定期壽險"],"TC4":["定期壽險"],"WCD":["美利雙寶"],"WCE":["美利雙寶"],"WCF":["萬美心"],"WCG":["美利甘心"],"WCJ":["美智守護"],"WCK":["美智守護"],"WD4":["美利康愛"],"WKA":["澳利成雙"],"WKB":["祿利澳翔"],"WKC":["祿守澳利"],"WQ6":["美添增鑫"],"WQ7":["美添增鑫"],"WQ8":["美添增鑫"],"WSH":["旭滿鑫"],"WSI":["旭滿鑫"],"WSJ":["鑫得利"],"WSK":["鑫得利"],"WTV":["吉添大勝"],"WTW":["雙鑫年年"],"WTY":["美年佳鑫"],"WUM":["美滿雙寶"],"WUN":["鑽美利"],"WUX":["年年佳鑫"],"WY2":["新樂安心"],"WYU":["展望年年"],"WZC":["豪美利101"],"WZD":["吉美利101"],"XU2":["OIU增享盈"],"WJA":["鑽美鑫"],"FPC":["點實成金"],"FPA":["點實成金"],"WWC":["美愛康泰"]};
+  let selectedProductName = '';
+  let resolvedProductNames = [];
+  const canvas = $('canvas');
+  const ctx = canvas.getContext('2d');
+  const template = new Image();
+  let ready = false;
+  let generated = false;
+  let objectUrl = null;
+
+  template.onload = () => {
+    ready = true;
+    ctx.drawImage(template, 0, 0, canvas.width, canvas.height);
+    $('status').textContent = '模板載入完成。填寫資料即可產圖。';
+  };
+  template.onerror = () => $('status').textContent = '模板載入失敗，請重新整理頁面。';
+  template.src = './template.jpg';
+
+  function lookupProduct() {
+    const raw = $('product').value.trim();
+    const hint = $('productLookup');
+    const choices = $('productChoices');
+    selectedProductName = '';
+    resolvedProductNames = [];
+    choices.innerHTML = '';
+    choices.style.display = 'none';
+
+    if (!raw) {
+      hint.textContent = '輸入一個或兩個商品代號，以空格分隔；也可直接輸入中文商品名稱。';
+      return;
+    }
+
+    // 允許半形空格、全形空格、Tab 分隔；最多兩個項目
+    const items = raw.split(/\s+/).filter(Boolean);
+    const looksLikeCodes = items.every(item => /^[A-Z0-9]+$/i.test(item));
+
+    // 只要輸入內容含中文或其他非代號字元，就視為手動商品名稱。
+    // 因此「商品中文名一 商品中文名二」也能正確分成兩行。
+    if (!looksLikeCodes) {
+      if (items.length > 2) {
+        hint.textContent = '目前最多輸入兩個商品名稱，請用空格分隔。';
+        return;
+      }
+      selectedProductName = items.join(' ');
+      resolvedProductNames = items;
+      hint.textContent = items.length === 2
+        ? '使用手動輸入的兩個商品名稱，將分成兩行顯示。'
+        : '使用手動輸入的商品名稱。';
+      return;
+    }
+
+    const codes = items.map(item => item.toUpperCase());
+    if (codes.length > 2) {
+      hint.textContent = '目前最多查詢兩個商品代號，請用空格分隔。';
+      return;
+    }
+
+    const entries = codes.map(code => ({ code, names: PRODUCT_MAP[code] }));
+    const unknown = entries.filter(item => !item.names);
+    if (unknown.length) {
+      if (codes.length === 1) {
+        hint.textContent = '查無此代號；請確認代號，或直接輸入中文商品名稱。';
+      } else {
+        hint.textContent = `查無代號：${unknown.map(item => item.code).join('、')}。請確認代號，或直接輸入中文商品名稱。`;
+      }
+      return;
+    }
+
+    resolvedProductNames = entries.map(item => item.names.length === 1 ? item.names[0] : '');
+    const ambiguous = entries.filter(item => item.names.length > 1);
+
+    if (!ambiguous.length) {
+      selectedProductName = resolvedProductNames.join(' ');
+      hint.textContent = `查詢結果：${resolvedProductNames.join('、')}`;
+      return;
+    }
+
+    hint.textContent = '此代號有多個商品，請選擇中文名稱：';
+    choices.style.display = 'block';
+
+    ambiguous.forEach(item => {
+      const label = document.createElement('label');
+      label.textContent = `${item.code} 的商品名稱`;
+      label.style.cssText = 'display:block;margin:8px 0 5px;font-size:13px;';
+      const select = document.createElement('select');
+      select.dataset.code = item.code;
+      select.style.cssText = 'width:100%;border:1px solid #d6ded7;border-radius:11px;padding:12px;font-size:16px;margin-bottom:8px;background:#fff;color:#1d2b22;';
+      const placeholder = document.createElement('option');
+      placeholder.value = '';
+      placeholder.textContent = '請選擇商品名稱';
+      select.appendChild(placeholder);
+      item.names.forEach(name => {
+        const option = document.createElement('option');
+        option.value = name;
+        option.textContent = name;
+        select.appendChild(option);
+      });
+      select.addEventListener('change', updateSelectedProducts);
+      choices.appendChild(label);
+      choices.appendChild(select);
+    });
+    updateSelectedProducts();
+  }
+
+  function updateSelectedProducts() {
+    const raw = $('product').value.trim();
+    const codes = raw.toUpperCase().split(/\s+/).filter(Boolean);
+    resolvedProductNames = codes.map(code => {
+      const names = PRODUCT_MAP[code];
+      if (!names) return '';
+      if (names.length === 1) return names[0];
+      const select = [...$('productChoices').querySelectorAll('select')].find(el => el.dataset.code === code);
+      return select ? select.value : '';
+    });
+    selectedProductName = resolvedProductNames.every(Boolean) ? resolvedProductNames.join(' ') : '';
+    if (selectedProductName) {
+      $('productLookup').textContent = `已選擇：${resolvedProductNames.join('、')}`;
+    }
+  }
+
+  $('product').addEventListener('input', lookupProduct);
+
+  // 新屋職稱名單由已登入的 Supabase 私有資料表載入，不再寫死在公開 HTML。
+  let NEW_HOUSE_JOB_MAP = {};
+  let staffListReady = false;
+  let lastAutoFilledJob = '';
+
+
+  function isNewHouseUnit() {
+    return $('unit').value.trim().startsWith('新屋');
+  }
+
+  function autofillNewHouseJob(force = false) {
+    if (!isNewHouseUnit()) return;
+    const name = $('name').value.trim();
+    if (!name) return;
+    if (!staffListReady) {
+      $('status').textContent = '請先登入並載入新屋人員名單。';
+      return;
+    }
+    const jobs = NEW_HOUSE_JOB_MAP[name];
+    if (!jobs || !jobs.length) return;
+
+    const currentJob = $('job').value.trim();
+    // 輸入姓名時預填；切換單位時只在職稱空白或仍是先前自動帶入值時更新，
+    // 使用者手動修改後不會被單位欄位的變動覆蓋。
+    if (force || !currentJob || currentJob === lastAutoFilledJob) {
+      $('job').value = jobs[0];
+      lastAutoFilledJob = jobs[0];
+      if (jobs.length > 1) {
+        $('status').textContent = `姓名「${name}」有多個職稱，已先帶入「${jobs[0]}」，請確認；職稱欄仍可自行修改。`;
+      } else {
+        $('status').textContent = `已預填職稱：${jobs[0]}（可自行修改）。`;
+      }
+    }
+  }
+
+  $('name').addEventListener('input', () => autofillNewHouseJob(true));
+  $('unit').addEventListener('input', () => autofillNewHouseJob(false));
+  $('job').addEventListener('input', () => {
+    // 保留手動修改；之後輸入新姓名時仍會重新預填。
+    if ($('job').value.trim() !== lastAutoFilledJob) lastAutoFilledJob = '';
+  });
+
+  function fontFor(text, maxSize, minSize, maxWidth, weight='700') {
+    let size = maxSize;
+    while (size > minSize) {
+      ctx.font = `${weight} ${size}px -apple-system, BlinkMacSystemFont, "PingFang TC", "Noto Sans TC", sans-serif`;
+      if (ctx.measureText(text).width <= maxWidth) break;
+      size--;
+    }
+    return size;
+  }
+
+  function draw(text, x, y, maxSize, minSize, maxWidth, color, align='center', weight='700') {
+    if (!text) return;
+    const size = fontFor(text, maxSize, minSize, maxWidth, weight);
+    ctx.font = `${weight} ${size}px -apple-system, BlinkMacSystemFont, "PingFang TC", "Noto Sans TC", sans-serif`;
+    ctx.fillStyle = color;
+    ctx.textAlign = align;
+    ctx.textBaseline = 'middle';
+    ctx.fillText(text, x, y, maxWidth);
+  }
+
+  function render() {
+    if (!ready) { $('status').textContent = '模板載入中，請稍候再試。'; return; }
+    const values = {
+      unit: $('unit').value.trim(),
+      name: $('name').value.trim(),
+      job: $('job').value.trim(),
+      product: selectedProductName || $('product').value.trim(),
+      fyp: $('fyp').value.trim()
+        ? $('fyp').value.trim().replace(/P$/i, '') + 'P'
+        : ''
+    };
+    const enteredProductRaw = $('product').value.trim();
+    const enteredProductCodes = enteredProductRaw.toUpperCase().split(/\s+/).filter(Boolean);
+    // 只有每個項目都是英文字母或數字，才視為商品代號。
+    // 兩個中文名稱即使中間有空格，也允許直接產圖。
+    const enteredAsCodes = enteredProductCodes.length > 0 &&
+      enteredProductCodes.every(item => /^[A-Z0-9]+$/.test(item));
+    if (enteredAsCodes && (!selectedProductName || enteredProductCodes.some(code => !PRODUCT_MAP[code]))) {
+      $('status').textContent = '請確認商品代號；若代號有多個名稱，請先選擇每個代號的中文名稱。';
+      return;
+    }
+    const missing = Object.entries({unit:'單位',name:'姓名',job:'職稱',product:'商品',fyp:'FYP'})
+      .filter(([key]) => !values[key]).map(([,label]) => label);
+    if (missing.length) { $('status').textContent = '請先填寫：' + missing.join('、'); return; }
+
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.drawImage(template, 0, 0, canvas.width, canvas.height);
+
+    // 座標以原始 720x1034 空白模板為基準，依範例圖配置
+    draw(values.unit, 108, 379, 35, 22, 500, '#333333', 'left', '700'); //單位
+    draw(values.name, 360, 450, 98, 34, 450, '#292929', 'center', '800'); //名字
+    draw(values.job, 520, 523, 28, 24, 210, '#333333', 'center', '700'); //職稱
+    const productLines = selectedProductName ? resolvedProductNames : [values.product];
+    if (productLines.length === 2) {
+      draw(productLines[0], 360, 610, 72, 28, 590, '#005b40', 'center', '800'); //商品第一行
+      draw(productLines[1], 360, 692, 72, 28, 590, '#005b40', 'center', '800'); //商品第二行
+    } else {
+      draw(values.product, 360, 653, 100, 28, 590, '#005b40', 'center', '800'); //商品
+    }
+    draw(values.fyp, 360, 817, 92, 42, 390, '#c90000', 'center', '800'); //FYP
+
+    generated = true;
+    $('share').disabled = false;
+    $('status').textContent = '圖片已產生。請檢查後，按「分享圖片」儲存或分享。';
+  }
+
+  function blobFromCanvas() {
+    return new Promise(resolve => canvas.toBlob(resolve, 'image/png'));
+  }
+
+  $('generate').addEventListener('click', render);
+  $('clear').addEventListener('click', () => {
+    ['unit','name','job','product','fyp'].forEach(id => $(id).value = '');
+    selectedProductName = '';
+    resolvedProductNames = [];
+    lastAutoFilledJob = '';
+    $('productChoices').innerHTML = '';
+    $('productChoices').style.display = 'none';
+    $('productLookup').textContent = '輸入一個或兩個商品代號，以空格分隔；也可直接輸入中文商品名稱。';
+    generated = false;
+    $('share').disabled = true;
+    if (ready) ctx.drawImage(template, 0, 0, canvas.width, canvas.height);
+    $('status').textContent = '欄位已清除。';
+  });
+
+  $('share').addEventListener('click', async () => {
+    if (!generated) return;
+    const blob = await blobFromCanvas();
+    if (!blob) return;
+    const safeName = ($('name').value.trim() || '賀報').replace(/[\\/:*?"<>|]/g, '_');
+    const file = new File([blob], `${safeName}_績優賀報.png`, {type:'image/png'});
+    try {
+      if (navigator.canShare && navigator.canShare({files:[file]})) {
+        await navigator.share({files:[file]});
+        $('status').textContent = '已開啟分享選單。';
+      } else {
+        if (objectUrl) URL.revokeObjectURL(objectUrl);
+        objectUrl = URL.createObjectURL(blob);
+        window.open(objectUrl, '_blank');
+        $('status').textContent = '此瀏覽器不支援直接分享檔案，已嘗試開啟圖片；請長按圖片儲存。';
+      }
+    } catch (err) {
+      if (err.name !== 'AbortError') $('status').textContent = '無法開啟分享選單，請重新產生圖片後再試。';
+    }
+  });
+
+  $('logoutButton').addEventListener('click', async () => {
+    if (supabaseClient) await supabaseClient.auth.signOut();
+    $('clear').click();
+  });
+
+  initializePrivateStaffAccess();
+
+  // 每次開啟網頁或從 iPhone 的暫存頁面返回，都清除上次填寫的資料
+  window.addEventListener('pageshow', () => {
+    $('clear').click();
+  });
+
+  // 主動檢查 Service Worker 更新；更新完成後自動載入新版頁面
+  if ('serviceWorker' in navigator && location.protocol.startsWith('http')) {
+    let refreshingForUpdate = false;
+    navigator.serviceWorker.addEventListener('controllerchange', () => {
+      if (refreshingForUpdate) return;
+      refreshingForUpdate = true;
+      location.reload();
+    });
+    window.addEventListener('load', async () => {
+      try {
+        const registration = await navigator.serviceWorker.register('./sw.js', {
+          updateViaCache: 'none'
+        });
+        await registration.update();
+      } catch (error) {
+        console.warn('Service Worker 更新檢查失敗：', error);
+      }
+    });
+  }
+})();
+</script>
+</body>
+</html>
