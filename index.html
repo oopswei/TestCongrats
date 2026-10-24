@@ -49,23 +49,19 @@
 </head>
 <body>
 <main>
-  <nav id="viewTabs" aria-label="功能切換" style="display:flex;gap:8px;margin-bottom:14px">
-    <button id="makerTab" class="primary" type="button">賀報製作</button>
-    <button id="adminTab" class="secondary" type="button">管理員專區</button>
-  </nav>
   <section class="auth-card" id="adminLoginPanel" hidden>
     <h1>桃竹區部賀報製作</h1>
-    <p class="intro">非管理員可直接使用賀報功能。管理員登入後，可更新人員名單與商品資料。</p>
+    <p class="intro">同事可直接使用賀報功能。管理員登入後，可更新人員名單與商品資料。</p>
     <div style="margin-top:16px">
       <label for="loginEmail">管理員電子郵件</label>
-      <input id="loginEmail" type="email" autocomplete="username" placeholder="管理員帳號">
+      <input id="loginEmail" type="email" autocomplete="username" placeholder="管理員電子郵件">
       <label for="loginPassword">密碼</label>
       <input id="loginPassword" type="password" autocomplete="current-password" placeholder="管理員密碼">
       <div class="auth-actions">
         <button class="primary" id="loginButton" type="button">管理員登入</button>
         <button class="secondary" id="closeAdminLogin" type="button">取消</button>
       </div>
-      <p class="auth-note">僅指定管理員可管理資料；非管理員不需要登入即可製作賀報。</p>
+      <p class="auth-note">僅指定管理員可管理資料；同事不需要登入即可製作賀報。</p>
       <div class="auth-status" id="authStatus" role="status" aria-live="polite">管理員登入後可管理名單與商品。</div>
     </div>
   </section>
@@ -115,7 +111,11 @@
     <div id="status" role="status" aria-live="polite">請填妥資料後，按「產生圖片預覽」。</div>
     <p class="note">iPhone 點「分享圖片」後，可在分享選單選擇「儲存影像」存入照片，或分享到 LINE。</p>
   </section>
+  <p class="footer" id="makerFooter">桃竹區部賀報製作工具 · 可離線使用（首次開啟並載入完成後）</p>
 </div>
+  <nav id="viewTabs" aria-label="管理員入口" style="display:flex;justify-content:center;gap:8px;margin-top:16px">
+    <button id="adminEntryButton" class="secondary" type="button">管理員登入</button>
+  </nav>
 </main>
 <script>
 (() => {
@@ -182,8 +182,8 @@
   function setView(view) {
     currentView = view;
     const maker = view === 'maker';
-    $('makerTab').className = maker ? 'primary' : 'secondary';
-    $('adminTab').className = maker ? 'secondary' : 'primary';
+    $('adminEntryButton').textContent = maker ? '管理員登入' : '返回賀報製作';
+    $('adminEntryButton').className = maker ? 'secondary' : 'primary';
     ['makerHeader','makerForm','previewCard','makerFooter'].forEach(id => { $(id).hidden = !maker; });
     $('adminTools').hidden = maker || !isAdmin;
     $('adminLoginPanel').hidden = maker || isAdmin;
@@ -204,8 +204,10 @@
     supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY, {
       auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true }
     });
-    $('makerTab').addEventListener('click', () => setView('maker'));
-    $('adminTab').addEventListener('click', () => setView('admin'));
+    $('adminEntryButton').addEventListener('click', () => {
+      if (currentView === 'maker') setView('admin');
+      else setView('maker');
+    });
     $('closeAdminLogin').addEventListener('click', () => setView('maker'));
     $('loginButton').addEventListener('click', async () => {
       const email = $('loginEmail').value.trim();
