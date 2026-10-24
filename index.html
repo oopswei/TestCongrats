@@ -51,7 +51,7 @@
 <main>
   <section class="auth-card" id="adminLoginPanel" hidden>
     <h1>桃竹區部賀報製作</h1>
-    <p class="intro">同事可直接使用賀報功能。管理員登入後，可更新人員名單與商品資料。</p>
+    <p class="intro">非管理員可直接使用賀報功能。管理員登入後，可更新人員名單與商品資料。</p>
     <div style="margin-top:16px">
       <label for="loginEmail">管理員電子郵件</label>
       <input id="loginEmail" type="email" autocomplete="username" placeholder="管理員電子郵件">
@@ -61,7 +61,7 @@
         <button class="primary" id="loginButton" type="button">管理員登入</button>
         <button class="secondary" id="closeAdminLogin" type="button">取消</button>
       </div>
-      <p class="auth-note">僅指定管理員可管理資料；同事不需要登入即可製作賀報。</p>
+      <p class="auth-note">僅指定管理員可管理資料；非管理員不需要登入即可製作賀報。</p>
       <div class="auth-status" id="authStatus" role="status" aria-live="polite">管理員登入後可管理名單與商品。</div>
     </div>
   </section>
@@ -89,7 +89,7 @@
     <button class="secondary" id="logoutButton" type="button" hidden style="width:auto;min-height:38px;padding:8px 12px;margin:0">管理員登出</button>
   </div>
   <header id="makerHeader">
-    <h1>桃竹區部賀報製作v3</h1>
+    <h1>桃竹區部賀報製作</h1>
     <p class="intro">輸入五項資料，自動套用模板。可預覽圖片，並透過 iPhone 分享或儲存圖片。</p>
   </header>
   <section class="card" id="makerForm">
@@ -111,7 +111,6 @@
     <div id="status" role="status" aria-live="polite">請填妥資料後，按「產生圖片預覽」。</div>
     <p class="note">iPhone 點「分享圖片」後，可在分享選單選擇「儲存影像」存入照片，或分享到 LINE。</p>
   </section>
-  <p class="footer" id="makerFooter">桃竹區部賀報製作工具 · 可離線使用（首次開啟並載入完成後）</p>
 </div>
   <nav id="viewTabs" aria-label="管理員入口" style="display:flex;justify-content:center;gap:8px;margin-top:16px">
     <button id="adminEntryButton" class="secondary" type="button">管理員登入</button>
