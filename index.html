@@ -49,24 +49,45 @@
 </head>
 <body>
 <main>
-  <section class="auth-card" id="loginPanel">
+  <section class="auth-card" id="adminLoginPanel" hidden>
     <h1>桃竹區部賀報製作</h1>
-    <p class="intro">請使用已獲授權的帳號登入，載入新屋人員職稱名單。</p>
+    <p class="intro">同事可直接使用賀報功能。管理員登入後，可更新人員名單與商品資料。</p>
     <div style="margin-top:16px">
-      <label for="loginEmail">授權電子郵件</label>
-      <input id="loginEmail" type="email" autocomplete="username" placeholder="輸入已授權的電子郵件">
+      <label for="loginEmail">管理員電子郵件</label>
+      <input id="loginEmail" type="email" autocomplete="username" placeholder="管理員電子郵件">
       <label for="loginPassword">密碼</label>
-      <input id="loginPassword" type="password" autocomplete="current-password" placeholder="輸入密碼">
+      <input id="loginPassword" type="password" autocomplete="current-password" placeholder="管理員密碼">
       <div class="auth-actions">
-        <button class="primary" id="loginButton" type="button">登入並載入名單</button>
+        <button class="primary" id="loginButton" type="button">管理員登入</button>
+        <button class="secondary" id="closeAdminLogin" type="button">取消</button>
       </div>
-      <p class="auth-note">只有管理員在 Supabase 建立的帳號可以登入。此網頁不提供自行註冊；人員名單不公開。</p>
-      <div class="auth-status" id="authStatus" role="status" aria-live="polite">請登入以載入最新名單。</div>
+      <p class="auth-note">僅指定管理員可管理資料；同事不需要登入即可製作賀報。</p>
+      <div class="auth-status" id="authStatus" role="status" aria-live="polite">管理員登入後可管理名單與商品。</div>
     </div>
   </section>
-  <div id="appContent" hidden>
-  <div style="display:flex;justify-content:flex-end;margin-bottom:8px">
-    <button class="secondary" id="logoutButton" type="button" style="width:auto;min-height:38px;padding:8px 12px;margin:0">登出名單</button>
+  <div id="appContent">
+  <section class="card" id="adminTools" hidden>
+    <div class="preview-title"><h2>管理員資料管理</h2><span class="pill">限管理員</span></div>
+    <label for="staffCsv">人員名單 CSV（欄位：unit,name,job）</label>
+    <input id="staffCsv" type="file" accept=".csv,text/csv">
+    <button class="primary" id="importStaffBtn" type="button">匯入人員名單（新增或更新）</button>
+    <p class="note">CSV 會依「單位＋姓名」比對；相同組合更新職級，不會刪除未出現在 CSV 的人員。</p>
+    <label for="productCsv">商品名單 CSV（欄位：code,name）</label>
+    <input id="productCsv" type="file" accept=".csv,text/csv">
+    <button class="primary" id="importProductBtn" type="button">匯入商品名單（新增或更新）</button>
+    <hr style="border:0;border-top:1px solid #e3e9e4;margin:16px 0">
+    <h2 style="margin-bottom:10px">單筆商品管理</h2>
+    <label for="manageProductCode">商品代號</label>
+    <input id="manageProductCode" placeholder="例如：ABA">
+    <label for="manageProductName">商品名稱</label>
+    <input id="manageProductName" placeholder="例如：美添增鑽">
+    <button class="primary" id="saveProductBtn" type="button">新增／修改商品</button>
+    <button class="gold" id="deleteProductBtn" type="button">刪除商品代號</button>
+    <div id="adminStatus" class="auth-status" role="status" aria-live="polite"></div>
+  </section>
+  <div style="display:flex;gap:8px;margin-bottom:8px">
+    <button class="secondary" id="showAdminLogin" type="button" style="width:auto;min-height:38px;padding:8px 12px;margin:0">管理員登入</button>
+    <button class="secondary" id="logoutButton" type="button" hidden style="width:auto;min-height:38px;padding:8px 12px;margin:0">管理員登出</button>
   </div>
   <header>
     <h1>桃竹區部賀報製作v3</h1>
@@ -98,12 +119,16 @@
 (() => {
   const $ = id => document.getElementById(id);
 
-  // ===== Supabase 設定：完成 Supabase 專案後，填入 Project URL 與 Publishable key =====
-  // 只放 publishable/anon key；絕不可把 service_role/secret key 放在 HTML。
+  // Supabase 前端只使用 publishable key，絕不可放 service_role/secret key。
   const SUPABASE_URL = 'https://rndhtrymovqndiifcned.supabase.co';
   const SUPABASE_PUBLISHABLE_KEY = '87fWcB1ORsx_EIEw4blFUg_du5L_5RC';
-  const STAFF_TABLE = 'hl10000_staff';
+  const STAFF_TABLE = 'taochu_staff_directory';
+  const PRODUCT_TABLE = 'hl10000_products';
+  const ADMIN_EMAIL = 'x199075251@gmail.com';
   let supabaseClient = null;
+  let isAdmin = false;
+  let STAFF_ROWS = [];
+  let DYNAMIC_PRODUCT_MAP = {};
 
   function setAuthStatus(message, isError = false) {
     const el = $('authStatus');
@@ -112,85 +137,179 @@
       el.style.color = isError ? '#b42318' : 'var(--green)';
     }
   }
-
-  async function loadPrivateStaffList() {
-    setAuthStatus('登入成功，正在載入新屋人員名單……');
-    const { data, error } = await supabaseClient
-      .from(STAFF_TABLE)
-      .select('name, job')
-      .order('name', { ascending: true });
-    if (error) throw error;
-
-    const map = {};
-    for (const row of (data || [])) {
-      const name = String(row.name || '').trim();
-      const job = String(row.job || '').trim();
-      if (!name || !job) continue;
-      if (!map[name]) map[name] = [];
-      if (!map[name].includes(job)) map[name].push(job);
+  function setAdminStatus(message, isError = false) {
+    const el = $('adminStatus');
+    if (el) {
+      el.textContent = message;
+      el.style.color = isError ? '#b42318' : 'var(--green)';
     }
-    NEW_HOUSE_JOB_MAP = map;
+  }
+  async function loadStaffDirectory() {
+    const { data, error } = await supabaseClient.from(STAFF_TABLE)
+      .select('unit,name,job').order('unit').order('name');
+    if (error) throw error;
+    STAFF_ROWS = data || [];
     staffListReady = true;
-    $('loginPanel').hidden = true;
-    $('appContent').hidden = false;
-    setAuthStatus(`名單載入完成，共 ${Object.keys(map).length} 位姓名。`);
-    $('status').textContent = '已登入，最新新屋人員名單已載入。';
-    // 若登入前已填入單位和姓名，名單載入後也補做一次職稱預填。
     autofillNewHouseJob(true);
   }
-
+  async function loadProducts() {
+    const { data, error } = await supabaseClient.from(PRODUCT_TABLE)
+      .select('code,name').order('code');
+    if (error) throw error;
+    DYNAMIC_PRODUCT_MAP = {};
+    for (const row of (data || [])) {
+      const code = String(row.code || '').trim().toUpperCase();
+      const name = String(row.name || '').trim();
+      if (!code || !name) continue;
+      if (!DYNAMIC_PRODUCT_MAP[code]) DYNAMIC_PRODUCT_MAP[code] = [];
+      if (!DYNAMIC_PRODUCT_MAP[code].includes(name)) DYNAMIC_PRODUCT_MAP[code].push(name);
+    }
+    // 新資料表有資料時，以資料庫為準；若尚未匯入，暫時使用原本內嵌商品表。
+    PRODUCT_MAP_ACTIVE = Object.keys(DYNAMIC_PRODUCT_MAP).length ? DYNAMIC_PRODUCT_MAP : PRODUCT_MAP;
+  }
+  async function loadPublicData() {
+    try {
+      await Promise.all([loadStaffDirectory(), loadProducts()]);
+      $('status').textContent = '人員名單與商品資料載入完成。';
+    } catch (error) {
+      console.error(error);
+      $('status').textContent = '資料庫名單或商品載入失敗；請確認已執行 supabase_setup.sql。';
+    }
+  }
+  async function updateAdminUI(session) {
+    const email = session?.user?.email?.toLowerCase() || '';
+    isAdmin = !!session && email === ADMIN_EMAIL.toLowerCase();
+    $('adminTools').hidden = !isAdmin;
+    $('logoutButton').hidden = !isAdmin;
+    $('showAdminLogin').hidden = isAdmin;
+    if (isAdmin) {
+      $('adminLoginPanel').hidden = true;
+      setAuthStatus('管理員已登入。');
+    } else {
+      $('adminLoginPanel').hidden = true;
+    }
+  }
   async function initializePrivateStaffAccess() {
-    if (!window.supabase || SUPABASE_URL.startsWith('請填入') ||
-        SUPABASE_PUBLISHABLE_KEY.startsWith('請填入')) {
-      setAuthStatus('尚未設定 Supabase。請先依隨附的部署說明設定網址與 Publishable key。', true);
-      $('loginButton').disabled = true;
+    if (!window.supabase) {
+      $('status').textContent = 'Supabase 套件載入失敗，請重新整理。';
       return;
     }
     supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY, {
       auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true }
     });
+    $('showAdminLogin').addEventListener('click', () => {
+      $('adminLoginPanel').hidden = false;
+      setAuthStatus('請輸入管理員帳號密碼。');
+    });
+    $('closeAdminLogin').addEventListener('click', () => $('adminLoginPanel').hidden = true);
     $('loginButton').addEventListener('click', async () => {
       const email = $('loginEmail').value.trim();
       const password = $('loginPassword').value;
-      if (!email || !password) {
-        setAuthStatus('請輸入電子郵件及密碼。', true);
-        return;
+      if (!email || !password) { setAuthStatus('請輸入電子郵件及密碼。', true); return; }
+      if (email.toLowerCase() !== ADMIN_EMAIL.toLowerCase()) {
+        setAuthStatus('此帳號不是指定管理員帳號。', true); return;
       }
       $('loginButton').disabled = true;
       setAuthStatus('正在登入……');
       try {
-        const { error } = await supabaseClient.auth.signInWithPassword({ email, password });
+        const { data, error } = await supabaseClient.auth.signInWithPassword({ email, password });
         if (error) throw error;
-        await loadPrivateStaffList();
+        await updateAdminUI(data.session);
+        setAuthStatus('管理員登入成功。');
       } catch (error) {
-        setAuthStatus('登入或載入名單失敗：' + (error.message || '請確認帳號、密碼及資料表權限。'), true);
-      } finally {
-        $('loginButton').disabled = false;
-      }
+        setAuthStatus('登入失敗：' + (error.message || '請確認帳號與密碼。'), true);
+      } finally { $('loginButton').disabled = false; }
     });
-    $('loginPassword').addEventListener('keydown', e => {
-      if (e.key === 'Enter') $('loginButton').click();
+    $('loginPassword').addEventListener('keydown', e => { if (e.key === 'Enter') $('loginButton').click(); });
+    $('logoutButton').addEventListener('click', async () => {
+      await supabaseClient.auth.signOut();
+      await updateAdminUI(null);
+      $('clear').click();
+      setAuthStatus('管理員已登出。');
     });
-
     const { data: { session } } = await supabaseClient.auth.getSession();
-    if (session) {
+    await updateAdminUI(session);
+    supabaseClient.auth.onAuthStateChange(async (_event, session) => updateAdminUI(session));
+    await loadPublicData();
+
+    $('importStaffBtn').addEventListener('click', async () => {
+      if (!isAdmin) return setAdminStatus('請先以管理員登入。', true);
+      const file = $('staffCsv').files[0];
+      if (!file) return setAdminStatus('請先選擇人員 CSV 檔。', true);
       try {
-        await loadPrivateStaffList();
-      } catch (error) {
-        setAuthStatus('無法載入名單：' + (error.message || '請重新登入或聯絡管理員。'), true);
-        await supabaseClient.auth.signOut();
-      }
-    }
-    supabaseClient.auth.onAuthStateChange(async (event, session) => {
-      if (event === 'SIGNED_OUT' || !session) {
-        $('appContent').hidden = true;
-        $('loginPanel').hidden = false;
-        staffListReady = false;
-        NEW_HOUSE_JOB_MAP = {};
-        setAuthStatus('已登出。請重新登入以載入名單。');
-      }
+        const rows = parseCSV(await file.text());
+        const normalized = rows.map(r => ({ unit: r.unit || r['單位'] || r['推展處'], name: r.name || r['姓名'], job: r.job || r['職級名稱'] || r['職稱'] }))
+          .filter(r => r.unit && r.name && r.job)
+          .map(r => ({ unit: String(r.unit).trim(), name: String(r.name).trim(), job: String(r.job).trim() }));
+        if (!normalized.length) throw new Error('CSV 沒有可匯入的資料，請確認欄位 unit,name,job。');
+        const { error } = await supabaseClient.from(STAFF_TABLE).upsert(normalized, { onConflict: 'unit,name' });
+        if (error) throw error;
+        await loadStaffDirectory();
+        setAdminStatus(`人員匯入完成：${normalized.length} 筆（新增或更新，未刪除其他資料）。`);
+      } catch (error) { setAdminStatus('人員匯入失敗：' + error.message, true); }
+    });
+    $('importProductBtn').addEventListener('click', async () => {
+      if (!isAdmin) return setAdminStatus('請先以管理員登入。', true);
+      const file = $('productCsv').files[0];
+      if (!file) return setAdminStatus('請先選擇商品 CSV 檔。', true);
+      try {
+        const rows = parseCSV(await file.text());
+        const normalized = rows.map(r => ({ code: String(r.code || r['商品代號'] || '').trim().toUpperCase(), name: String(r.name || r['商品名稱'] || '').trim() }))
+          .filter(r => r.code && r.name);
+        if (!normalized.length) throw new Error('CSV 沒有可匯入的資料，請確認欄位 code,name。');
+        const { error } = await supabaseClient.from(PRODUCT_TABLE).upsert(normalized, { onConflict: 'code' });
+        if (error) throw error;
+        await loadProducts();
+        setAdminStatus(`商品匯入完成：${normalized.length} 筆（新增或更新，未刪除其他資料）。`);
+      } catch (error) { setAdminStatus('商品匯入失敗：' + error.message, true); }
+    });
+    $('saveProductBtn').addEventListener('click', async () => {
+      if (!isAdmin) return setAdminStatus('請先以管理員登入。', true);
+      const code = $('manageProductCode').value.trim().toUpperCase();
+      const name = $('manageProductName').value.trim();
+      if (!code || !name) return setAdminStatus('請輸入商品代號與名稱。', true);
+      const { error } = await supabaseClient.from(PRODUCT_TABLE).upsert({ code, name }, { onConflict: 'code' });
+      if (error) return setAdminStatus('儲存失敗：' + error.message, true);
+      await loadProducts();
+      $('product').dispatchEvent(new Event('input'));
+      setAdminStatus(`商品 ${code} 已新增或更新。`);
+    });
+    $('deleteProductBtn').addEventListener('click', async () => {
+      if (!isAdmin) return setAdminStatus('請先以管理員登入。', true);
+      const code = $('manageProductCode').value.trim().toUpperCase();
+      if (!code) return setAdminStatus('請先輸入要刪除的商品代號。', true);
+      if (!confirm(`確定刪除商品 ${code}？`)) return;
+      const { error } = await supabaseClient.from(PRODUCT_TABLE).delete().eq('code', code);
+      if (error) return setAdminStatus('刪除失敗：' + error.message, true);
+      await loadProducts();
+      $('product').dispatchEvent(new Event('input'));
+      setAdminStatus(`商品 ${code} 已刪除。`);
     });
   }
+  function parseCSV(text) {
+    // 支援一般逗號 CSV、雙引號與 Excel UTF-8 BOM。
+    text = text.replace(/^\\uFEFF/, '');
+    const rows = [];
+    let row = [], field = '', quoted = false;
+    for (let i = 0; i < text.length; i++) {
+      const c = text[i], next = text[i + 1];
+      if (c === '"' && quoted && next === '"') { field += '"'; i++; }
+      else if (c === '"') quoted = !quoted;
+      else if (c === ',' && !quoted) { row.push(field.trim()); field = ''; }
+      else if ((c === '\\n' || c === '\\r') && !quoted) {
+        if (c === '\\r' && next === '\\n') i++;
+        row.push(field.trim()); field = '';
+        if (row.some(v => v !== '')) rows.push(row);
+        row = [];
+      } else field += c;
+    }
+    row.push(field.trim());
+    if (row.some(v => v !== '')) rows.push(row);
+    if (!rows.length) return [];
+    const headers = rows.shift().map(h => h.trim());
+    return rows.map(values => Object.fromEntries(headers.map((h, i) => [h, values[i] || ''])));
+  }
+  let PRODUCT_MAP_ACTIVE = null;
   const PRODUCT_MAP = {"ABA":["美添增鑽"],"ABB":["美添增鑽"],"AGH":["真漾心安"],"CFA":["自由配"],"CFD":["自由配"],"CFP":["自由配"],"CFQ":["自由配"],"CFR":["自由配"],"CFW":["自由配"],"DCC":["樂心安"],"DCD":["樂心安"],"DQ1":["IN康愛"],"DQB":["樂康愛"],"DR2":["精準康愛"],"DS5":["康泰無憂"],"DS6":["康泰無憂"],"DTF":["樂順心"],"DTG":["樂順心"],"ESA":["月月永溢"],"ESB":["月月永溢"],"ESC":["月月永溢"],"ESD":["月月永溢"],"FBC":["新溢起愛"],"FG3":["倍愛醫靠"],"FG4":["倍愛醫靠"],"FIA":["月月滿溢"],"FIB":["月月滿溢"],"FIC":["月月滿溢"],"FID":["月月滿溢"],"FKA":["月月泰利"],"FKB":["月月泰利"],"FKC":["月月泰利"],"FKD":["月月泰利"],"FMC":["好康愛"],"FSC":["滿溢寶"],"FSD":["滿溢寶"],"FSF":["滿溢康愛"],"FV6":["真心安"],"FV7":["真心安"],"GD3":["鑫超澳利富"],"GFB":["基優人生"],"GFC":["基優人生"],"GFD":["基優人生"],"GFE":["基優人生"],"GI2":["樂享平安"],"GJ3":["樂轉健康"],"GU6":["鑫超樂享人生"],"HD5":["新樂轉守護"],"HTB":["輕漾心安"],"JW4":["真安安"],"L67":["真康順"],"LCC":["樂齡守護"],"LCD":["樂齡守護"],"MFB":["豪康愛"],"N65":["意萬平安"],"R8A":["真飛Young人生"],"R8B":["真飛Young人生"],"SC2":["樂鍾心"],"SFE":["超飛揚"],"SRA":["月享安鑫"],"SRB":["月享安鑫"],"SRC":["月享安鑫"],"SRD":["月享安鑫"],"STA":["樂盈人生"],"STB":["樂盈人生"],"SUA":["飛揚一生"],"SUB":["飛揚一生"],"SUC":["飛揚一生"],"SUD":["飛揚一生"],"VSC":["安心守護A"],"VSD":["安心守護B"],"WAU":["祿利威登"],"WDA":["美愛康盈"],"WDB":["美滿康愛"],"WE1":["滿福寶"],"WSL":["萬得利"],"WSM":["萬得利"],"WUO":["鑽美富"],"WUP":["鑽美富"],"WUQ":["億美利"],"WUR":["億美利"],"WUS":["鑽美滿"],"XG4":["鑫超月月有利"],"XG5":["鑫超月月有利"],"ZCO":["新鍾心滿福"],"ZH8":["倍心守護"],"C64":["祿美富"],"CCA":["繽利101"],"CCB":["吉得利101"],"CP1":["悠享年年"],"CP2":["悠享年年"],"CP3":["悠享年年"],"CQA":["萬年美利"],"CQB":["萬年美利"],"CQC":["萬年美利"],"CQD":["萬年美利"],"CTA":["樂齡享退"],"DPA":["醫心康愛"],"DPC":["醫護康愛"],"DX4":["IN享愛壽險"],"FBB":["新溢起愛"],"FKE":["月月泰利"],"GI1":["樂平安"],"ICB":["鑫超樂享人生"],"ID6":["鑫超樂享人生"],"IUA":["OIU指享盈"],"JD2":["新智樂活"],"K84":["新GO心保障100"],"K93":["新GO心保障100"],"KC3":["微馨福"],"KC4":["微馨福"],"LDA":["睛智守護"],"LDB":["睛智守護"],"LX4":["鑫超樂享人生"],"N66":["新GO安心保本"],"N67":["意萬平安"],"SB8":["脂有為你"],"SFF":["超飛揚(外幣)"],"TC1":["定期壽險"],"TC2":["定期壽險"],"TC3":["定期壽險"],"TC4":["定期壽險"],"WCD":["美利雙寶"],"WCE":["美利雙寶"],"WCF":["萬美心"],"WCG":["美利甘心"],"WCJ":["美智守護"],"WCK":["美智守護"],"WD4":["美利康愛"],"WKA":["澳利成雙"],"WKB":["祿利澳翔"],"WKC":["祿守澳利"],"WQ6":["美添增鑫"],"WQ7":["美添增鑫"],"WQ8":["美添增鑫"],"WSH":["旭滿鑫"],"WSI":["旭滿鑫"],"WSJ":["鑫得利"],"WSK":["鑫得利"],"WTV":["吉添大勝"],"WTW":["雙鑫年年"],"WTY":["美年佳鑫"],"WUM":["美滿雙寶"],"WUN":["鑽美利"],"WUX":["年年佳鑫"],"WY2":["新樂安心"],"WYU":["展望年年"],"WZC":["豪美利101"],"WZD":["吉美利101"],"XU2":["OIU增享盈"],"WJA":["鑽美鑫"],"FPC":["點實成金"],"FPA":["點實成金"],"WWC":["美愛康泰"]};
   let selectedProductName = '';
   let resolvedProductNames = [];
@@ -248,7 +367,8 @@
       return;
     }
 
-    const entries = codes.map(code => ({ code, names: PRODUCT_MAP[code] }));
+    const activeMap = PRODUCT_MAP_ACTIVE || PRODUCT_MAP;
+    const entries = codes.map(code => ({ code, names: activeMap[code] }));
     const unknown = entries.filter(item => !item.names);
     if (unknown.length) {
       if (codes.length === 1) {
@@ -299,7 +419,8 @@
     const raw = $('product').value.trim();
     const codes = raw.toUpperCase().split(/\s+/).filter(Boolean);
     resolvedProductNames = codes.map(code => {
-      const names = PRODUCT_MAP[code];
+      const activeMap = PRODUCT_MAP_ACTIVE || PRODUCT_MAP;
+      const names = activeMap[code];
       if (!names) return '';
       if (names.length === 1) return names[0];
       const select = [...$('productChoices').querySelectorAll('select')].find(el => el.dataset.code === code);
@@ -320,7 +441,7 @@
 
 
   function isNewHouseUnit() {
-    return $('unit').value.trim().startsWith('新屋');
+    return true; // 已改為所有單位皆依「單位＋姓名」查詢。
   }
 
   function autofillNewHouseJob(force = false) {
@@ -331,8 +452,16 @@
       $('status').textContent = '請先登入並載入新屋人員名單。';
       return;
     }
-    const jobs = NEW_HOUSE_JOB_MAP[name];
-    if (!jobs || !jobs.length) return;
+    const unit = $('unit').value.trim();
+    const matched = STAFF_ROWS.filter(row =>
+      String(row.unit || '').trim() === unit &&
+      String(row.name || '').trim() === name
+    );
+    const jobs = [...new Set(matched.map(row => String(row.job || '').trim()).filter(Boolean))];
+    if (!jobs.length) {
+      $('status').textContent = `名單中找不到「${unit}／${name}」的職級；可手動輸入職稱。`;
+      return;
+    }
 
     const currentJob = $('job').value.trim();
     // 輸入姓名時預填；切換單位時只在職稱空白或仍是先前自動帶入值時更新，
@@ -392,7 +521,7 @@
     // 兩個中文名稱即使中間有空格，也允許直接產圖。
     const enteredAsCodes = enteredProductCodes.length > 0 &&
       enteredProductCodes.every(item => /^[A-Z0-9]+$/.test(item));
-    if (enteredAsCodes && (!selectedProductName || enteredProductCodes.some(code => !PRODUCT_MAP[code]))) {
+    if (enteredAsCodes && (!selectedProductName || enteredProductCodes.some(code => !(PRODUCT_MAP_ACTIVE || PRODUCT_MAP)[code]))) {
       $('status').textContent = '請確認商品代號；若代號有多個名稱，請先選擇每個代號的中文名稱。';
       return;
     }
