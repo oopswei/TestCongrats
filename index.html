@@ -72,7 +72,7 @@
     <input id="staffCsv" type="file" accept=".csv,text/csv">
     <button class="primary" id="importStaffBtn" type="button">匯入人員名單（新增或更新）</button>
     <p class="note">CSV 會依「單位＋姓名」比對；相同組合更新職級，不會刪除未出現在 CSV 的人員。</p>
-    <label for="productCsv">商品名單 CSV（欄位：code,name）</label>
+    <label for="productCsv">商品名單 CSV（欄位：product_code,product_name；亦支援 code,name）</label>
     <input id="productCsv" type="file" accept=".csv,text/csv">
     <button class="primary" id="importProductBtn" type="button">匯入商品名單（新增或更新）</button>
     <hr style="border:0;border-top:1px solid #e3e9e4;margin:16px 0">
@@ -154,12 +154,12 @@
   }
   async function loadProducts() {
     const { data, error } = await supabaseClient.from(PRODUCT_TABLE)
-      .select('code,name').order('code');
+      .select('product_code,product_name').order('product_code');
     if (error) throw error;
     DYNAMIC_PRODUCT_MAP = {};
     for (const row of (data || [])) {
-      const code = String(row.code || '').trim().toUpperCase();
-      const name = String(row.name || '').trim();
+      const code = String(row.product_code || '').trim().toUpperCase();
+      const name = String(row.product_name || '').trim();
       if (!code || !name) continue;
       if (!DYNAMIC_PRODUCT_MAP[code]) DYNAMIC_PRODUCT_MAP[code] = [];
       if (!DYNAMIC_PRODUCT_MAP[code].includes(name)) DYNAMIC_PRODUCT_MAP[code].push(name);
@@ -254,10 +254,12 @@
       if (!file) return setAdminStatus('請先選擇商品 CSV 檔。', true);
       try {
         const rows = parseCSV(await file.text());
-        const normalized = rows.map(r => ({ code: String(r.code || r['商品代號'] || '').trim().toUpperCase(), name: String(r.name || r['商品名稱'] || '').trim() }))
-          .filter(r => r.code && r.name);
-        if (!normalized.length) throw new Error('CSV 沒有可匯入的資料，請確認欄位 code,name。');
-        const { error } = await supabaseClient.from(PRODUCT_TABLE).upsert(normalized, { onConflict: 'code' });
+        const normalized = rows.map(r => ({
+          product_code: String(r.product_code || r.code || r['商品代號'] || '').trim().toUpperCase(),
+          product_name: String(r.product_name || r.name || r['商品名稱'] || '').trim()
+        })).filter(r => r.product_code && r.product_name);
+        if (!normalized.length) throw new Error('CSV 沒有可匯入的資料，請確認欄位 product_code,product_name 或 code,name。');
+        const { error } = await supabaseClient.from(PRODUCT_TABLE).upsert(normalized, { onConflict: 'product_code' });
         if (error) throw error;
         await loadProducts();
         setAdminStatus(`商品匯入完成：${normalized.length} 筆（新增或更新，未刪除其他資料）。`);
@@ -268,7 +270,10 @@
       const code = $('manageProductCode').value.trim().toUpperCase();
       const name = $('manageProductName').value.trim();
       if (!code || !name) return setAdminStatus('請輸入商品代號與名稱。', true);
-      const { error } = await supabaseClient.from(PRODUCT_TABLE).upsert({ code, name }, { onConflict: 'code' });
+      const { error } = await supabaseClient.from(PRODUCT_TABLE).upsert(
+        { product_code: code, product_name: name },
+        { onConflict: 'product_code' }
+      );
       if (error) return setAdminStatus('儲存失敗：' + error.message, true);
       await loadProducts();
       $('product').dispatchEvent(new Event('input'));
@@ -279,7 +284,7 @@
       const code = $('manageProductCode').value.trim().toUpperCase();
       if (!code) return setAdminStatus('請先輸入要刪除的商品代號。', true);
       if (!confirm(`確定刪除商品 ${code}？`)) return;
-      const { error } = await supabaseClient.from(PRODUCT_TABLE).delete().eq('code', code);
+      const { error } = await supabaseClient.from(PRODUCT_TABLE).delete().eq('product_code', code);
       if (error) return setAdminStatus('刪除失敗：' + error.message, true);
       await loadProducts();
       $('product').dispatchEvent(new Event('input'));
