@@ -197,6 +197,8 @@
     }
   }
   let currentView = 'maker';
+  // 是否正在處理 Supabase 密碼重設流程；必須先初始化，避免登入後切換畫面時發生 ReferenceError。
+  let isPasswordRecovery = false;
   function setView(view) {
     currentView = view;
     const maker = view === 'maker';
