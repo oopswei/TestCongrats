@@ -348,10 +348,24 @@
       if (!file) return setAdminStatus('請先選擇人員 CSV 檔。', true);
       try {
         const rows = parseCSV(await file.text());
-        const normalized = rows.map(r => ({ unit: r.unit || r['單位'] || r['推展處'], name: r.name || r['姓名'], job: r.job || r['職級名稱'] || r['職稱'] }))
-          .filter(r => r.unit && r.name && r.job)
+        const normalized = rows.map(r => {
+          // 欄位名稱先去除 BOM、前後空白及大小寫差異，再對應中文欄名。
+          const clean = {};
+          Object.entries(r).forEach(([key, value]) => {
+            const k = String(key).replace(/^\uFEFF/, '').trim().replace(/[\\s　]/g, '').toLowerCase();
+            clean[k] = value;
+          });
+          return {
+            unit: clean.unit || clean['單位'] || clean['推展處'] || clean['單位名稱'],
+            name: clean.name || clean['姓名'] || clean['員工姓名'] || clean['同仁姓名'],
+            job: clean.job || clean['職級名稱'] || clean['職稱'] || clean['職級'] || clean['職務']
+          };
+        }).filter(r => r.unit && r.name && r.job)
           .map(r => ({ unit: String(r.unit).trim(), name: String(r.name).trim(), job: String(r.job).trim() }));
-        if (!normalized.length) throw new Error('CSV 沒有可匯入的資料，請確認欄位 unit,name,job。');
+        if (!normalized.length) {
+          const headers = rows.length ? Object.keys(rows[0]).join('、') : '（沒有讀到標題列或資料列）';
+          throw new Error(`CSV 沒有可匯入的資料。讀取到的欄位：${headers}。需要單位／推展處、姓名、職級名稱／職稱三個欄位。`);
+        }
         const { error } = await supabaseClient.from(STAFF_TABLE).upsert(normalized, { onConflict: 'unit,name' });
         if (error) throw error;
         await loadStaffDirectory();
@@ -403,7 +417,7 @@
   }
   function parseCSV(text) {
     // 支援一般逗號 CSV、雙引號與 Excel UTF-8 BOM。
-    text = text.replace(/^\\uFEFF/, '');
+    text = text.replace(/^\uFEFF/, '');
     const rows = [];
     let row = [], field = '', quoted = false;
     for (let i = 0; i < text.length; i++) {
@@ -421,7 +435,7 @@
     row.push(field.trim());
     if (row.some(v => v !== '')) rows.push(row);
     if (!rows.length) return [];
-    const headers = rows.shift().map(h => h.trim());
+    const headers = rows.shift().map(h => String(h).replace(/^\uFEFF/, '').trim());
     return rows.map(values => Object.fromEntries(headers.map((h, i) => [h, values[i] || ''])));
   }
   let PRODUCT_MAP_ACTIVE = null;
