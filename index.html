@@ -59,10 +59,26 @@
       <input id="loginPassword" type="password" autocomplete="current-password" placeholder="管理員密碼">
       <div class="auth-actions">
         <button class="primary" id="loginButton" type="button">管理員登入</button>
+        <button class="secondary" id="forgotPasswordButton" type="button">忘記密碼</button>
         <button class="secondary" id="closeAdminLogin" type="button">取消</button>
       </div>
       <p class="auth-note">僅指定管理員可管理資料；非管理員不需要登入即可製作賀報。</p>
       <div class="auth-status" id="authStatus" role="status" aria-live="polite">管理員登入後可管理名單與商品。</div>
+    </div>
+  </section>
+  <section class="auth-card" id="resetPasswordPanel" hidden>
+    <h1>設定新密碼</h1>
+    <p class="intro">請輸入新的管理員密碼。設定完成後即可使用新密碼登入。</p>
+    <div style="margin-top:16px">
+      <label for="newPassword">新密碼</label>
+      <input id="newPassword" type="password" autocomplete="new-password" placeholder="請輸入新密碼">
+      <label for="confirmNewPassword">確認新密碼</label>
+      <input id="confirmNewPassword" type="password" autocomplete="new-password" placeholder="請再次輸入新密碼">
+      <div class="auth-actions">
+        <button class="primary" id="saveNewPasswordButton" type="button">儲存新密碼</button>
+      </div>
+      <p class="auth-note">請設定至少 8 個字元的密碼。</p>
+      <div class="auth-status" id="resetPasswordStatus" role="status" aria-live="polite"></div>
     </div>
   </section>
   <div id="appContent">
@@ -188,7 +204,8 @@
     $('adminEntryButton').className = maker ? 'secondary' : 'primary';
     ['makerHeader','makerForm','previewCard','makerFooter'].forEach(id => { $(id).hidden = !maker; });
     $('adminTools').hidden = maker || !isAdmin;
-    $('adminLoginPanel').hidden = maker || isAdmin;
+    $('adminLoginPanel').hidden = maker || isAdmin || isPasswordRecovery;
+    $('resetPasswordPanel').hidden = maker || !isPasswordRecovery;
     $('logoutButton').hidden = maker || !isAdmin;
     if (!maker && !isAdmin) setAuthStatus('請使用管理員帳號登入，才能管理人員與商品資料。');
     if (!maker && isAdmin) setAuthStatus('管理員已登入。');
@@ -232,6 +249,74 @@
       } finally { $('loginButton').disabled = false; }
     });
     $('loginPassword').addEventListener('keydown', e => { if (e.key === 'Enter') $('loginButton').click(); });
+
+    // 忘記密碼：透過 Supabase Auth 寄送一次性重設連結，不在前端保存密碼。
+    $('forgotPasswordButton').addEventListener('click', async () => {
+      const email = $('loginEmail').value.trim().toLowerCase();
+      if (!email) {
+        setAuthStatus('請先輸入管理員電子郵件，再按「忘記密碼」。', true);
+        $('loginEmail').focus();
+        return;
+      }
+      if (email !== ADMIN_EMAIL.toLowerCase()) {
+        setAuthStatus('此電子郵件不是指定管理員帳號。', true);
+        return;
+      }
+      const button = $('forgotPasswordButton');
+      button.disabled = true;
+      setAuthStatus('正在寄送密碼重設信……');
+      try {
+        const redirectTo = window.location.origin + window.location.pathname;
+        const { error } = await supabaseClient.auth.resetPasswordForEmail(email, { redirectTo });
+        if (error) throw error;
+        setAuthStatus('密碼重設信已送出。請到管理員信箱收信，並點擊信中的連結設定新密碼。');
+      } catch (error) {
+        console.error(error);
+        setAuthStatus('無法寄送重設信：' + (error.message || '請稍後再試。'), true);
+      } finally {
+        button.disabled = false;
+      }
+    });
+
+    // 使用重設信連結返回網站後，透過 Supabase Recovery session 更新密碼。
+    $('saveNewPasswordButton').addEventListener('click', async () => {
+      const password = $('newPassword').value;
+      const confirmPassword = $('confirmNewPassword').value;
+      if (password.length < 8) {
+        $('resetPasswordStatus').textContent = '新密碼至少需要 8 個字元。';
+        $('resetPasswordStatus').style.color = '#b42318';
+        return;
+      }
+      if (password !== confirmPassword) {
+        $('resetPasswordStatus').textContent = '兩次輸入的密碼不一致。';
+        $('resetPasswordStatus').style.color = '#b42318';
+        return;
+      }
+      const button = $('saveNewPasswordButton');
+      button.disabled = true;
+      $('resetPasswordStatus').textContent = '正在更新密碼……';
+      $('resetPasswordStatus').style.color = 'var(--green)';
+      try {
+        const { error } = await supabaseClient.auth.updateUser({ password });
+        if (error) throw error;
+        isPasswordRecovery = false;
+        $('newPassword').value = '';
+        $('confirmNewPassword').value = '';
+        $('resetPasswordStatus').textContent = '密碼已更新。請使用新密碼登入。';
+        await supabaseClient.auth.signOut();
+        await updateAdminUI(null);
+        setView('maker');
+        $('adminEntryButton').click();
+        setAuthStatus('密碼已更新，請使用新密碼登入。');
+      } catch (error) {
+        console.error(error);
+        $('resetPasswordStatus').textContent = '更新密碼失敗：' + (error.message || '請重新開啟重設連結。');
+        $('resetPasswordStatus').style.color = '#b42318';
+      } finally {
+        button.disabled = false;
+      }
+    });
+
     $('logoutButton').addEventListener('click', async () => {
       await supabaseClient.auth.signOut();
       await updateAdminUI(null);
@@ -242,7 +327,17 @@
     const { data: { session } } = await supabaseClient.auth.getSession();
     await updateAdminUI(session);
     setView('maker');
-    supabaseClient.auth.onAuthStateChange(async (_event, session) => updateAdminUI(session));
+    supabaseClient.auth.onAuthStateChange(async (event, session) => {
+      if (event === 'PASSWORD_RECOVERY') {
+        isPasswordRecovery = true;
+        currentView = 'admin';
+        await updateAdminUI(session);
+        setView('admin');
+        $('resetPasswordStatus').textContent = '請設定新的管理員密碼。';
+      } else {
+        await updateAdminUI(session);
+      }
+    });
     await loadPublicData();
 
     $('importStaffBtn').addEventListener('click', async () => {
